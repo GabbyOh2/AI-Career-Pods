@@ -1,0 +1,673 @@
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const TEST_DB_RESET_TOKEN = import.meta.env.VITE_TEST_DB_RESET_TOKEN || "";
+const CACHE_PREFIX = "qwyse-cache:";
+
+const memoryCache = new Map();
+
+function nowMs() {
+  return Date.now();
+}
+
+function getCacheKey(path) {
+  return `${CACHE_PREFIX}${path}`;
+}
+
+function readSessionCache(cacheKey) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(cacheKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.expiresAt !== "number") {
+      window.sessionStorage.removeItem(cacheKey);
+      return null;
+    }
+
+    if (parsed.expiresAt <= nowMs()) {
+      window.sessionStorage.removeItem(cacheKey);
+      return null;
+    }
+
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionCache(cacheKey, data, ttlMs) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      cacheKey,
+      JSON.stringify({
+        data,
+        expiresAt: nowMs() + ttlMs,
+      }),
+    );
+  } catch {
+    // Ignore storage quota or serialization errors.
+  }
+}
+
+function setCache(path, data, ttlMs) {
+  const cacheKey = getCacheKey(path);
+  const expiresAt = nowMs() + ttlMs;
+  memoryCache.set(cacheKey, { data, expiresAt });
+  writeSessionCache(cacheKey, data, ttlMs);
+}
+
+function getCache(path) {
+  const cacheKey = getCacheKey(path);
+  const cached = memoryCache.get(cacheKey);
+
+  if (cached && cached.expiresAt > nowMs()) {
+    return cached.data;
+  }
+
+  if (cached) {
+    memoryCache.delete(cacheKey);
+  }
+
+  const sessionCached = readSessionCache(cacheKey);
+  if (sessionCached) {
+    memoryCache.set(cacheKey, { data: sessionCached, expiresAt: nowMs() + 1000 });
+    return sessionCached;
+  }
+
+  return null;
+}
+
+function clearCache(path) {
+  const cacheKey = getCacheKey(path);
+  memoryCache.delete(cacheKey);
+  if (typeof window !== "undefined") {
+    window.sessionStorage.removeItem(cacheKey);
+  }
+}
+
+function clearPodCache(podId) {
+  [
+    `/pods/${podId}/members`,
+    `/pods/${podId}/checkin/current`,
+    `/pods/${podId}/checkins`,
+    `/pods/${podId}/phase`,
+    `/pods/${podId}/resume-reviews`,
+    `/pods/${podId}/stats`,
+    `/pods/${podId}/celebrations/all`,
+    `/pods/${podId}/posts`,
+    `/pods/${podId}/feed`,  // Added: clear feed cache
+    `/pods/${podId}/trending`,  // Added: clear trending cache
+    `/pods/${podId}/accountability`,
+    `/pods/${podId}/biweekly-summaries/periods`,
+    "/pods",
+  ].forEach(clearCache);
+}
+
+async function request(path, options = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: options.method || "GET",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  const contentType = response.headers.get("content-type") || "";
+  const hasJson = contentType.includes("application/json");
+  const payload = hasJson ? await response.json() : null;
+
+  if (!response.ok) {
+    const message = payload?.message || "Request failed.";
+    const error = new Error(message);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
+async function requestCached(path, ttlMs = 45000) {
+  const cached = getCache(path);
+  if (cached) {
+    return cached;
+  }
+
+  const payload = await request(path);
+  setCache(path, payload, ttlMs);
+  return payload;
+}
+
+export async function registerUser(input) {
+  return request("/auth/register", { method: "POST", body: input });
+}
+
+export async function loginUser(input) {
+  return request("/auth/login", { method: "POST", body: input });
+}
+
+export async function logoutUser() {
+  return request("/auth/logout", { method: "POST" });
+}
+
+export async function getCurrentUser() {
+  return request("/auth/me");
+}
+
+export async function setupProfile(input) {
+  const result = await request("/users/profile", { method: "PUT", body: input });
+  clearCache("/pods");
+  return result;
+}
+
+export async function getPods() {
+  return requestCached("/pods", 30000);
+}
+
+export async function createPod(input) {
+  const result = await request("/pods", { method: "POST", body: input });
+  clearCache("/pods");
+  return result;
+}
+
+export async function updatePodSettings(podId, input) {
+  const result = await request(`/pods/${podId}`, {
+    method: "PATCH",
+    body: input,
+  });
+  clearPodCache(podId);
+  return result;
+}
+
+export async function promotePodMemberToAdmin(podId, membershipId) {
+  const result = await request(`/pods/${podId}/members/${membershipId}/role`, {
+    method: "PATCH",
+    body: { role: "ADMIN" },
+  });
+  clearCache(`/pods/${podId}/members`);
+  return result;
+}
+
+export async function getPodOnboarding(podId) {
+  return request(`/pods/${podId}/onboarding`);
+}
+
+export async function completePodOnboarding(podId, introMessage) {
+  return request(`/pods/${podId}/onboarding`, {
+    method: "POST",
+    body: { introMessage },
+  });
+}
+
+export async function getPodMembers(podId) {
+  return requestCached(`/pods/${podId}/members`, 45000);
+}
+
+/** Accountability & nudges — backend may return 404 until implemented. */
+export async function getPodAccountability(podId) {
+  return request(`/pods/${podId}/accountability`);
+}
+
+export async function sendPodNudge(podId, body) {
+  const result = await request(`/pods/${podId}/nudges`, {
+    method: "POST",
+    body,
+  });
+  clearCache(`/pods/${podId}/accountability`);
+  return result;
+}
+
+export async function respondToPodNudge(podId, nudgeId, body) {
+  const result = await request(`/pods/${podId}/nudges/${nudgeId}/respond`, {
+    method: "POST",
+    body,
+  });
+  clearCache(`/pods/${podId}/accountability`);
+  return result;
+}
+
+export async function setPodQuietMode(podId, body) {
+  const result = await request(`/pods/${podId}/accountability/quiet-mode`, {
+    method: "PUT",
+    body,
+  });
+  clearCache(`/pods/${podId}/accountability`);
+  return result;
+}
+
+export async function getUserPods() {
+  return request("/pods/user/mypods");
+}
+
+export async function joinPod(podId) {
+  const result = await request(`/pods/${podId}/join`, { method: "POST" });
+  clearPodCache(podId);
+  return result;
+}
+
+export async function leavePod(podId) {
+  const result = await request(`/pods/${podId}/leave`, { method: "POST" });
+  clearPodCache(podId);
+  return result;
+}
+
+export async function getPodPosts(podId) {
+  return requestCached(`/pods/${podId}/posts`, 20000);
+}
+
+export async function createPodPost(podId, input) {
+  const result = await request(`/pods/${podId}/posts`, { method: "POST", body: input });
+  clearCache(`/pods/${podId}/posts`);
+  clearCache(`/pods/${podId}/feed`); // Clear feed cache when new post created
+  return result;
+}
+
+export async function deletePodPost(podId, postId) {
+  const result = await request(`/pods/${podId}/posts/${postId}`, { method: "DELETE" });
+  clearCache(`/pods/${podId}/posts`);
+  clearCache(`/pods/${podId}/feed`); // Clear feed cache when post deleted
+  return result;
+}
+
+// ============================================
+// NEW SOCIAL FEED API FUNCTIONS
+// ============================================
+
+/**
+ * Get paginated feed posts with sorting and filtering
+ * @param {string} podId - The pod ID
+ * @param {Object} options - Query options
+ * @param {string} options.sort - 'recent', 'trending', or 'recommended'
+ * @param {number} options.page - Page number (1-indexed)
+ * @param {number} options.limit - Posts per page
+ * @param {array} options.tags - Filter by tags
+ */
+export async function getFeedPosts(podId, { sort = 'recent', page = 1, limit = 10, tags = [] } = {}) {
+  const params = new URLSearchParams({ 
+    sort, 
+    page: page.toString(), 
+    limit: limit.toString() 
+  });
+  
+  if (tags.length) {
+    params.append('tags', tags.join(','));
+  }
+  
+  const cacheKey = `/pods/${podId}/feed?${params.toString()}`;
+  
+  // Use shorter cache for trending/recommended, longer for recent
+  const ttl = sort === 'recent' ? 15000 : 30000;
+  
+  return requestCached(cacheKey, ttl);
+}
+
+/**
+ * Create a new post in the feed
+ * @param {string} podId - The pod ID
+ * @param {Object} input - Post data
+ * @param {string} input.title - Post title
+ * @param {string} input.content - Post content
+ * @param {array} input.tags - Array of tags
+ * @param {string} input.mediaUrl - Optional media URL
+ */
+export async function createPost(podId, input) {
+  const result = await request(`/pods/${podId}/posts`, { 
+    method: "POST", 
+    body: input 
+  });
+  
+  // Clear all feed caches for this pod
+  clearCache(`/pods/${podId}/feed`);
+  clearCache(`/pods/${podId}/trending`);
+  
+  return result;
+}
+
+
+
+/**
+ * Share a post
+ * @param {string} podId - The pod ID
+ * @param {string} postId - The post ID
+ */
+export async function sharePost(podId, postId) {
+  const result = await request(`/pods/${podId}/posts/${postId}/share`, { 
+    method: "POST" 
+  });
+  
+  clearCache(`/pods/${podId}/feed`);
+  
+  return result;
+}
+
+/**
+ * Get comments for a post
+ * @param {string} podId - The pod ID
+ * @param {string} postId - The post ID
+ * @param {number} page - Page number
+ */
+export async function getComments(podId, postId, page = 1) {
+  return requestCached(`/pods/${podId}/posts/${postId}/comments?page=${page}`, 15000);
+}
+
+/**
+ * Add a comment to a post
+ * @param {string} podId - The pod ID
+ * @param {string} postId - The post ID
+ * @param {string} content - Comment content
+ */
+export async function addComment(podId, postId, content) {
+  const result = await request(`/pods/${podId}/posts/${postId}/comments`, {
+    method: "POST",
+    body: { content }
+  });
+  
+  clearCache(`/pods/${podId}/posts/${postId}/comments`);
+  clearCache(`/pods/${podId}/feed`); // Update feed to show new comment count
+  
+  return result;
+}
+
+/**
+ * Get trending topics for a pod
+ * @param {string} podId - The pod ID
+ */
+export async function getTrendingTopics(podId) {
+  return requestCached(`/pods/${podId}/trending`, 30000);
+}
+
+/**
+ * Get recommended posts for a user based on engagement
+ * @param {string} podId - The pod ID
+ */
+export async function getRecommendedPosts(podId) {
+  return requestCached(`/pods/${podId}/feed/recommended`, 60000);
+}
+
+// ============================================
+// END SOCIAL FEED API FUNCTIONS
+// ============================================
+
+export function getGoogleAuthUrl() {
+  return `${SERVER_URL}/api/auth/google`;
+}
+
+export async function getCurrentRituals(podId) {
+  return requestCached(`/pods/${podId}/checkin/current`, 45000);
+}
+
+export async function submitCheckIn(podId, notes, goals) {
+  const result = await request(`/pods/${podId}/checkin`, {
+    method: "POST",
+    body: { notes, goals },
+  });
+  clearCache(`/pods/${podId}/checkin/current`);
+  clearCache(`/pods/${podId}/checkins`);
+  clearCache(`/pods/${podId}/stats`);
+  return result;
+}
+
+export async function submitReflection(podId, content) {
+  const result = await request(`/pods/${podId}/reflection`, {
+    method: "POST",
+    body: { content },
+  });
+  clearCache(`/pods/${podId}/checkin/current`);
+  clearCache(`/pods/${podId}/checkins`);
+  clearCache(`/pods/${podId}/reflections`);
+  clearCache(`/pods/${podId}/stats`);
+  return result;
+}
+
+export async function addCelebration(podId, title, description) {
+  const result = await request(`/pods/${podId}/celebrations`, {
+    method: "POST",
+    body: { title, description },
+  });
+  clearCache(`/pods/${podId}/checkin/current`);
+  clearCache(`/pods/${podId}/celebrations/all`);
+  clearCache(`/pods/${podId}/stats`);
+  return result;
+}
+
+export async function getPodCheckIns(podId) {
+  return requestCached(`/pods/${podId}/checkins`, 45000);
+}
+
+export async function getPodReflections(podId) {
+  return requestCached(`/pods/${podId}/reflections`, 45000);
+}
+
+export async function getPodPhase(podId) {
+  return requestCached(`/pods/${podId}/phase`, 45000);
+}
+
+export async function getPodStats(podId) {
+  return requestCached(`/pods/${podId}/stats`, 30000);
+}
+
+export async function getPodCelebrations(podId) {
+  return requestCached(`/pods/${podId}/celebrations/all`, 45000);
+}
+
+export async function getNotifications() {
+  return request(`/pods/notifications`);
+}
+
+export async function getEngagementScore(podId) {
+  return requestCached(`/pods/${podId}/engagement`, 30000);
+}
+
+export async function getBiweeklySummaryPeriods(podId) {
+  return requestCached(`/pods/${podId}/biweekly-summaries/periods`, 20000);
+}
+
+export async function getBiweeklySummary(podId, windowStartAt) {
+  const encoded = encodeURIComponent(windowStartAt);
+  return requestCached(`/pods/${podId}/biweekly-summaries?windowStartAt=${encoded}`, 20000);
+}
+
+export async function generateBiweeklySummary(podId, windowStartAt) {
+  const result = await request(`/pods/${podId}/biweekly-summaries/generate`, {
+    method: "POST",
+    body: { windowStartAt },
+  });
+
+  clearCache(`/pods/${podId}/biweekly-summaries/periods`);
+  clearCache(`/pods/${podId}/biweekly-summaries?windowStartAt=${encodeURIComponent(windowStartAt)}`);
+  return result;
+}
+
+export async function markNotificationRead(notificationId) {
+  return request(`/pods/notifications/${notificationId}/read`, { method: "PATCH" });
+}
+
+export async function markNotificationUnread(notificationId) {
+  return request(`/pods/notifications/${notificationId}/unread`, { method: "PATCH" });
+}
+
+export async function createResumeReviewRequest(podId, input) {
+  const result = await request(`/pods/${podId}/resume-reviews`, {
+    method: "POST",
+    body: input,
+  });
+  clearCache(`/pods/${podId}/resume-reviews`);
+  return result;
+}
+
+export async function uploadResumeReviewFile(podId, requestId, input) {
+  const result = await request(`/pods/${podId}/resume-reviews/${requestId}/file`, {
+    method: "POST",
+    body: input,
+  });
+  clearCache(`/pods/${podId}/resume-reviews`);
+  clearCache(`/pods/${podId}/resume-reviews/${requestId}`);
+  return result;
+}
+
+export async function getResumeReviewRequests(podId) {
+  return requestCached(`/pods/${podId}/resume-reviews`, 45000);
+}
+
+export async function getResumeReviewRequest(podId, requestId) {
+  return requestCached(`/pods/${podId}/resume-reviews/${requestId}`, 30000);
+}
+
+export async function getResumeReviewFileUrl(podId, requestId) {
+  return request(`/pods/${podId}/resume-reviews/${requestId}/file-url`);
+}
+
+export async function submitResumeReviewFeedback(podId, requestId, input) {
+  const result = await request(`/pods/${podId}/resume-reviews/${requestId}/feedback`, {
+    method: "POST",
+    body: input,
+  });
+  clearCache(`/pods/${podId}/resume-reviews`);
+  clearCache(`/pods/${podId}/resume-reviews/${requestId}`);
+  clearCache(`/pods/${podId}/resume-reviews/${requestId}/feedback`);
+  clearCache(`/pods/${podId}/resume-reviews/${requestId}/my-feedback`);
+  return result;
+}
+
+export async function getResumeReviewFeedback(podId, requestId) {
+  return requestCached(`/pods/${podId}/resume-reviews/${requestId}/feedback`, 30000);
+}
+
+export async function getMyResumeReviewFeedback(podId, requestId) {
+  return requestCached(`/pods/${podId}/resume-reviews/${requestId}/my-feedback`, 30000);
+}
+
+export async function updateResumeReviewStatus(podId, requestId, status) {
+  const result = await request(`/pods/${podId}/resume-reviews/${requestId}/status`, {
+    method: "PATCH",
+    body: { status },
+  });
+  clearCache(`/pods/${podId}/resume-reviews`);
+  clearCache(`/pods/${podId}/resume-reviews/${requestId}`);
+  return result;
+}
+
+export async function deleteResumeReviewRequest(podId, requestId) {
+  const result = await request(`/pods/${podId}/resume-reviews/${requestId}`, {
+    method: "DELETE",
+  });
+  clearCache(`/pods/${podId}/resume-reviews`);
+  clearCache(`/pods/${podId}/resume-reviews/${requestId}`);
+  return result;
+}
+
+export function prefetchPodFeatureData(podId) {
+  if (!podId) {
+    return;
+  }
+
+  const tasks = [
+    getCurrentRituals(podId),
+    getPodCheckIns(podId),
+    getPodPhase(podId),
+    getPodStats(podId),
+    getPodCelebrations(podId),
+    getPodPosts(podId),
+    getFeedPosts(podId, { sort: 'recent', page: 1, limit: 5 }), // Prefetch first page of feed
+    getTrendingTopics(podId), // Prefetch trending
+    getResumeReviewRequests(podId),
+    getPodMembers(podId),
+    getBiweeklySummaryPeriods(podId),
+  ];
+
+  tasks.forEach((task) => {
+    Promise.resolve(task).catch(() => {
+      // Ignore prefetch errors; components will handle user-facing errors on demand.
+    });
+  });
+}
+
+export async function resetTestDatabase(confirmText) {
+  const headers = TEST_DB_RESET_TOKEN
+    ? {
+        "x-reset-token": TEST_DB_RESET_TOKEN,
+      }
+    : undefined;
+
+  return request(`/admin/test/reset-db`, {
+    method: "POST",
+    headers,
+    body: { confirmText },
+  });
+}
+
+
+/**
+ * Like a post with proper error handling
+ * @param {string} podId - The pod ID
+ * @param {string} postId - The post ID
+ */
+export async function likePost(podId, postId) {
+  console.log(`Liking post ${postId} in pod ${podId}`);
+  const result = await request(`/pods/${podId}/posts/${postId}/like`, { 
+    method: "POST" 
+  });
+  
+  // Clear all relevant caches
+  clearCache(`/pods/${podId}/feed`);
+  clearCache(`/pods/${podId}/posts`);
+  
+  return result;
+}
+
+/**
+ * Unlike a post
+ * @param {string} podId - The pod ID
+ * @param {string} postId - The post ID
+ */
+export async function unlikePost(podId, postId) {
+  console.log(`Unliking post ${postId} in pod ${podId}`);
+  const result = await request(`/pods/${podId}/posts/${postId}/like`, { 
+    method: "DELETE" 
+  });
+  
+  clearCache(`/pods/${podId}/feed`);
+  
+  return result;
+}
+
+/**
+ * Save a post (bookmark)
+ * @param {string} podId - The pod ID
+ * @param {string} postId - The post ID
+ */
+export async function savePost(podId, postId) {
+  console.log(`Saving post ${postId} in pod ${podId}`);
+  const result = await request(`/pods/${podId}/posts/${postId}/save`, { 
+    method: "POST" 
+  });
+  clearCache(`/pods/${podId}/feed`);
+  return result;
+}
+
+/**
+ * Unsave a post
+ * @param {string} podId - The pod ID
+ * @param {string} postId - The post ID
+ */
+export async function unsavePost(podId, postId) {
+  console.log(`Unsaving post ${postId} in pod ${podId}`);
+  const result = await request(`/pods/${podId}/posts/${postId}/save`, { 
+    method: "DELETE" 
+  });
+  clearCache(`/pods/${podId}/feed`);
+  return result;
+}
+
