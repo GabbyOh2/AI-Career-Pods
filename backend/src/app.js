@@ -18,7 +18,12 @@ configureGooglePassport();
 const allowedOrigins = [
     'http://localhost:5173',
     'https://gabbyoh2.github.io',
+    'https://gabbyoh2.github.io/AI-Career-Pods',
 ];
+
+app.get('/', (req, res) => {
+    res.json({ message: 'AI Career Pods API is running', endpoints: ['/api/health', '/api/auth', '/api/pods'] });
+});
 
 // 1. Basic routes FIRST (no middleware blocking)
 app.get('/ping', (req, res) => {
@@ -29,8 +34,15 @@ app.get('/ping', (req, res) => {
 // 2. CORS and middleware
 app.use(cors({
     origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) !== -1) {
+
+        // Check if origin matches any allowed pattern
+        const isAllowed = allowedOrigins.some(allowed =>
+            origin === allowed || origin.startsWith(allowed)
+        );
+
+        if (isAllowed) {
             callback(null, true);
         } else {
             console.log('Blocked origin:', origin);
@@ -38,8 +50,6 @@ app.use(cors({
         }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
 }));
 
 app.use(express.json({ limit: "15mb" }));
@@ -57,6 +67,16 @@ console.log('Mounting auth routes...');
 app.use("/api/auth", authRoutes);
 console.log('✅ Auth routes mounted');
 
+// DEBUG: List all registered auth routes
+if (authRoutes.stack) {
+    const routes = authRoutes.stack
+        .filter(r => r.route)
+        .map(r => r.route.path);
+    console.log('📋 Auth routes registered:', routes);
+} else {
+    console.log('⚠️ No routes found in authRoutes');
+}
+
 console.log('Mounting health route...');
 app.get("/api/health", (_request, response) => {
     console.log('❗ Health endpoint was called!');
@@ -67,10 +87,18 @@ console.log('✅ Health route mounted');
 console.log('Mounting user routes...');
 app.use("/api/users", userRoutes);
 console.log('✅ User routes mounted');
+if (userRoutes.stack) {
+    const routes = userRoutes.stack.filter(r => r.route).map(r => r.route.path);
+    console.log('📋 User routes registered:', routes);
+}
 
 console.log('Mounting pod routes...');
 app.use("/api/pods", podRoutes);
 console.log('✅ Pod routes mounted');
+if (podRoutes.stack) {
+    const routes = podRoutes.stack.filter(r => r.route).map(r => r.route.path);
+    console.log('📋 Pod routes registered:', routes);
+}
 
 console.log('Mounting admin routes...');
 app.use("/api/admin", adminRoutes);
