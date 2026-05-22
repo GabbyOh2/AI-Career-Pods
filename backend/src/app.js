@@ -18,16 +18,27 @@ const allowedOrigins = [
     'https://gabbyoh2.github.io',      // Your GitHub Pages frontend
 ];
 
-app.use(
-    cors({
-        origin: ['http://localhost:5173', 'https://gabbyoh2.github.io'],
-        credentials: true,
-    })
-);
+app.use(cors({
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log('Blocked origin:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+}));
 
 app.use(express.json({ limit: "15mb" }));
 app.use(cookieParser());
 app.use(passport.initialize());
+app.use("/api/auth", authRoutes);
 
 app.get("/api/health", (_request, response) => {
   response.status(200).json({ status: "ok" });
