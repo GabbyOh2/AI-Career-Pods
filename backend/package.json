@@ -15,7 +15,7 @@
     "test": "cross-env NODE_ENV=test vitest run",
     "test:watch": "cross-env NODE_ENV=test vitest",
     "test:supabase": "cross-env NODE_ENV=test node scripts/runWithEnv.js .env vitest run --testTimeout=10000",
-    "postinstall": "npx prisma generate --platform=debian-openssl-3.0.x"
+    "postinstall": "npx prisma generate"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
