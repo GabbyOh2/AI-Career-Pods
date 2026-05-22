@@ -46,6 +46,11 @@ app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
     next();
 });
+
+app.use('*', (req, res) => {
+    console.log(`[CATCH-ALL] ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ error: 'Route not found', path: req.originalUrl });
+});
 // ========== END DEBUG MIDDLEWARE ==========
 
 console.log('Mounting auth routes...');
