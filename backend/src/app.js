@@ -13,12 +13,18 @@ const app = express();
 
 configureGooglePassport();
 
+const allowedOrigins = [
+    'http://localhost:5173',           // Local frontend
+    'https://gabbyoh2.github.io',      // Your GitHub Pages frontend
+];
+
 app.use(
-  cors({
-    origin: config.clientOrigin,
-    credentials: true,
-  }),
+    cors({
+        origin: ['http://localhost:5173', 'https://gabbyoh2.github.io'],
+        credentials: true,
+    })
 );
+
 app.use(express.json({ limit: "15mb" }));
 app.use(cookieParser());
 app.use(passport.initialize());

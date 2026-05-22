@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  base: '/AI-Career-Pods/',
   server: {
     proxy: {
-      // This redirects all frontend '/api' calls to your backend port
       '/api': {
         target: 'http://localhost:4000', 
         changeOrigin: true,
