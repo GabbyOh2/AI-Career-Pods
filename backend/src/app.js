@@ -16,20 +16,20 @@ console.log('=== Starting app initialization ===');
 configureGooglePassport();
 
 const allowedOrigins = [
-    'http://localhost:5173',           // Local frontend
-    'https://gabbyoh2.github.io',      // Your GitHub Pages frontend
+    'http://localhost:5173',
+    'https://gabbyoh2.github.io',
 ];
 
+// 1. Basic routes FIRST (no middleware blocking)
 app.get('/ping', (req, res) => {
     console.log('Ping endpoint was called!');
     res.json({ status: 'pong' });
 });
 
+// 2. CORS and middleware
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl)
         if (!origin) return callback(null, true);
-
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
@@ -46,18 +46,13 @@ app.use(express.json({ limit: "15mb" }));
 app.use(cookieParser());
 app.use(passport.initialize());
 
-// ========== ADD THIS DEBUG MIDDLEWARE ==========
+// 3. Debug middleware (log only, don't block)
 app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
     next();
 });
 
-app.use('*', (req, res) => {
-    console.log(`[CATCH-ALL] ${req.method} ${req.originalUrl}`);
-    res.status(404).json({ error: 'Route not found', path: req.originalUrl });
-});
-// ========== END DEBUG MIDDLEWARE ==========
-
+// 4. YOUR ACTUAL ROUTES - These MUST come before the catch-all
 console.log('Mounting auth routes...');
 app.use("/api/auth", authRoutes);
 console.log('✅ Auth routes mounted');
@@ -81,6 +76,13 @@ console.log('Mounting admin routes...');
 app.use("/api/admin", adminRoutes);
 console.log('✅ Admin routes mounted');
 
+// 5. CATCH-ALL - Only AFTER all routes (404 for anything not matched)
+app.use('*', (req, res) => {
+    console.log(`[CATCH-ALL] ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ error: 'Route not found', path: req.originalUrl });
+});
+
+// 6. Error handler (last)
 app.use((error, _request, response, _next) => {
     console.error('Error handler:', error);
     response.status(500).json({ message: "Unexpected server error." });
