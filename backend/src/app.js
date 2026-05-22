@@ -11,6 +11,8 @@ import { userRoutes } from "./routes/userRoutes.js";
 
 const app = express();
 
+console.log('=== Starting app initialization ===');
+
 configureGooglePassport();
 
 const allowedOrigins = [
@@ -38,19 +40,42 @@ app.use(cors({
 app.use(express.json({ limit: "15mb" }));
 app.use(cookieParser());
 app.use(passport.initialize());
-app.use("/api/auth", authRoutes);
 
-app.get("/api/health", (_request, response) => {
-  response.status(200).json({ status: "ok" });
+// ========== ADD THIS DEBUG MIDDLEWARE ==========
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
 });
+// ========== END DEBUG MIDDLEWARE ==========
 
+console.log('Mounting auth routes...');
+app.use("/api/auth", authRoutes);
+console.log('✅ Auth routes mounted');
+
+console.log('Mounting health route...');
+app.get("/api/health", (_request, response) => {
+    console.log('❗ Health endpoint was called!');
+    response.status(200).json({ status: "ok" });
+});
+console.log('✅ Health route mounted');
+
+console.log('Mounting user routes...');
 app.use("/api/users", userRoutes);
+console.log('✅ User routes mounted');
+
+console.log('Mounting pod routes...');
 app.use("/api/pods", podRoutes);
+console.log('✅ Pod routes mounted');
+
+console.log('Mounting admin routes...');
 app.use("/api/admin", adminRoutes);
+console.log('✅ Admin routes mounted');
 
 app.use((error, _request, response, _next) => {
-  console.error(error);
-  response.status(500).json({ message: "Unexpected server error." });
+    console.error('Error handler:', error);
+    response.status(500).json({ message: "Unexpected server error." });
 });
+
+console.log('=== App initialization complete ===');
 
 export { app };
