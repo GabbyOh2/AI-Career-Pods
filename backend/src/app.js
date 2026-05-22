@@ -20,6 +20,11 @@ const allowedOrigins = [
     'https://gabbyoh2.github.io',      // Your GitHub Pages frontend
 ];
 
+app.get('/ping', (req, res) => {
+    console.log('Ping endpoint was called!');
+    res.json({ status: 'pong' });
+});
+
 app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps or curl)
