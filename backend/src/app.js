@@ -44,7 +44,6 @@ app.get("/api/health", (_request, response) => {
   response.status(200).json({ status: "ok" });
 });
 
-app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/pods", podRoutes);
 app.use("/api/admin", adminRoutes);
