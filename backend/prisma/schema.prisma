@@ -65,7 +65,8 @@ enum SentimentType {
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -74,40 +75,40 @@ datasource db {
 }
 
 model User {
-  id                        String                    @id @default(uuid())
-  email                     String                    @unique
-  passwordHash              String?
-  fullName                  String?
-  fieldOfStudy              String?
-  careerStage               String?
-  targetTimeline            String?
-  locationCity              String?
-  preferredGroupSize        String?
-  avatarUrl                 String?
-  authProvider              AuthProvider              @default(LOCAL)
-  googleId                  String?                   @unique
-  createdAt                 DateTime                  @default(now())
-  updatedAt                 DateTime                  @updatedAt
-  avatarData                Bytes?
-  avatarMimeType            String?
-  notifications             Notification[]
-  notificationsSent         Notification[]            @relation("NotificationSender")
-  createdPods               Pod[]                     @relation("PodCreatedBy")
-  podCelebrations           PodCelebration[]
-  podCheckIns               PodCheckIn[]
-  reviewedMemberships       PodMembership[]           @relation("PodMembershipReviewedBy")
-  podMemberships            PodMembership[]           @relation("PodMembershipUser")
-  authoredPodPosts          PodPost[]                 @relation("PodPostAuthor")
-  podReflections            PodReflection[]
-  resumeReviewFilesUploaded PodResumeFile[]           @relation("ResumeFileUploader")
-  resumeReviewFeedbackGiven PodResumeReviewFeedback[] @relation("ResumeFeedbackReviewer")
-  nudgesSent                Nudge[]                   @relation("NudgeFrom")
-  nudgesReceived            Nudge[]                   @relation("NudgeTo")
-  podQuietModes             QuietMode[]
-  accountabilityMetrics     AccountabilityMetric[]
-  resumeReviewRequests      PodResumeReviewRequest[]  @relation("ResumeRequestOwner")
-  engagementMetrics         EngagementMetrics[]
-  engagementScores          EngagementScores[]
+  id                         String                    @id @default(uuid())
+  email                      String                    @unique
+  passwordHash               String?
+  fullName                   String?
+  fieldOfStudy               String?
+  careerStage                String?
+  targetTimeline             String?
+  locationCity               String?
+  preferredGroupSize         String?
+  avatarUrl                  String?
+  authProvider               AuthProvider              @default(LOCAL)
+  googleId                   String?                   @unique
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+  avatarData                 Bytes?
+  avatarMimeType             String?
+  notifications              Notification[]
+  notificationsSent          Notification[]            @relation("NotificationSender")
+  createdPods                Pod[]                     @relation("PodCreatedBy")
+  podCelebrations            PodCelebration[]
+  podCheckIns                PodCheckIn[]
+  reviewedMemberships        PodMembership[]           @relation("PodMembershipReviewedBy")
+  podMemberships             PodMembership[]           @relation("PodMembershipUser")
+  authoredPodPosts           PodPost[]                 @relation("PodPostAuthor")
+  podReflections             PodReflection[]
+  resumeReviewFilesUploaded  PodResumeFile[]           @relation("ResumeFileUploader")
+  resumeReviewFeedbackGiven  PodResumeReviewFeedback[] @relation("ResumeFeedbackReviewer")
+  nudgesSent                 Nudge[]                   @relation("NudgeFrom")
+  nudgesReceived             Nudge[]                   @relation("NudgeTo")
+  podQuietModes              QuietMode[]
+  accountabilityMetrics      AccountabilityMetric[]
+  resumeReviewRequests       PodResumeReviewRequest[]  @relation("ResumeRequestOwner")
+  engagementMetrics          EngagementMetrics[]
+  engagementScores           EngagementScores[]
   generatedBiweeklySummaries PodBiweeklySummary[]      @relation("PodBiweeklySummaryGeneratedBy")
 
   @@index([fieldOfStudy])
@@ -153,15 +154,15 @@ model Pod {
 }
 
 model PodBiweeklySummary {
-  id           String   @id @default(uuid())
-  podId        String
+  id            String   @id @default(uuid())
+  podId         String
   windowStartAt DateTime
-  windowEndAt  DateTime
-  summaryText  String   @db.Text
-  sourceCounts Json?
+  windowEndAt   DateTime
+  summaryText   String   @db.Text
+  sourceCounts  Json?
   generatedById String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   pod         Pod   @relation(fields: [podId], references: [id], onDelete: Cascade)
   generatedBy User? @relation("PodBiweeklySummaryGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
@@ -495,5 +496,3 @@ model EngagementScores {
   @@unique([userId, podId, weekStartDate])
   @@index([userId, podId, calculatedAt])
 }
-
-
